@@ -1,0 +1,2 @@
+jaydebeapi>=1.2.3
+javalang>=0.13.0
