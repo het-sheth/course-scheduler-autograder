@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import jaydebeapi
 import re
+import tempfile
 from pathlib import Path
 from datetime import datetime
 import json
@@ -29,9 +30,14 @@ class CourseSchedulerGrader:
         self.database_zip = database_zip
         self.project_part = project_part
         
-        # Setup working directory
-        self.work_dir = Path("/tmp/grading_workspace")
-        self.work_dir.mkdir(exist_ok=True)
+        # Setup working directory - Windows compatible
+        if sys.platform == "win32":
+            temp_base = Path(tempfile.gettempdir()) / "grading_workspace"
+        else:
+            temp_base = Path("/tmp/grading_workspace")
+        
+        self.work_dir = temp_base
+        self.work_dir.mkdir(parents=True, exist_ok=True)
         
         # Grading results
         self.results = {

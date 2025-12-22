@@ -11,9 +11,41 @@ import subprocess
 import jaydebeapi
 import re
 import json
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from advanced_code_analyzer import CodeAnalyzer, FunctionalityTester
+
+
+# ========================================
+# CRITICAL: Initialize JVM with Derby JAR
+# ========================================
+import jpype
+
+def initialize_jvm_with_derby():
+    """Initialize JVM and add Derby JAR to classpath"""
+    if jpype.isJVMStarted():
+        return True
+    
+    if not os.environ.get('JAVA_HOME'):
+        os.environ['JAVA_HOME'] = r'C:\Program Files\Java\jdk-21'
+    
+    derby_jar = r"C:\Derby\lib\derby.jar"
+    if not os.path.exists(derby_jar):
+        return False
+    
+    try:
+        jvm_path = os.path.join(os.environ['JAVA_HOME'], 'bin', 'server', 'jvm.dll')
+        if os.path.exists(jvm_path):
+            jpype.startJVM(jvm_path, convertStrings=False)
+            jpype.addClassPath(derby_jar)
+            return True
+    except:
+        return False
+
+# Initialize JVM when module loads
+initialize_jvm_with_derby()
+# ========================================
 
 class FullyAutomatedGrader:
     def __init__(self, project_zip, database_zip, project_part=1):
@@ -21,8 +53,14 @@ class FullyAutomatedGrader:
         self.database_zip = database_zip
         self.project_part = project_part
         
-        self.work_dir = Path("/tmp/auto_grading")
-        self.work_dir.mkdir(exist_ok=True)
+        # Use Windows-compatible temp directory
+        if sys.platform == "win32":
+            temp_base = Path(tempfile.gettempdir()) / "auto_grading"
+        else:
+            temp_base = Path("/tmp/auto_grading")
+        
+        self.work_dir = temp_base
+        self.work_dir.mkdir(parents=True, exist_ok=True)
         
         self.results = {
             "student_name": "",
@@ -95,21 +133,32 @@ class FullyAutomatedGrader:
                 return
             
             conn = jaydebeapi.connect(
-                "org.apache.derby.jdbc.EmbeddedDriver",
+                "org.apache.derby.iapi.jdbc.AutoloadedDriver",
                 f"jdbc:derby:{self.database_dir}",
-                ["java", "java"],
-                derby_jar
-            )
+                ["java", "java"],)
             
             cursor = conn.cursor()
             
             # Test 1: Required tables exist
             print("\nTest 1: Checking required tables...")
             required_tables = ['SEMESTER', 'COURSES', 'CLASSES', 'STUDENTS', 'SCHEDULE']
+            
+            # Also accept singular versions
+            singular_map = {
+                'COURSES': 'COURSE',
+                'CLASSES': 'CLASS',
+                'STUDENTS': 'STUDENT'
+            }
             cursor.execute("SELECT TABLENAME FROM SYS.SYSTABLES WHERE TABLETYPE='T'")
             existing_tables = [row[0] for row in cursor.fetchall()]
             
-            missing_tables = [t for t in required_tables if t not in existing_tables]
+            # Check for both plural and singular versions
+            missing_tables = []
+            for table in required_tables:
+                if table not in existing_tables:
+                    # Check if singular version exists
+                    if table in singular_map and singular_map[table] not in existing_tables:
+                        missing_tables.append(table)
             
             if not missing_tables:
                 self.add_success("All 5 required tables exist", 50)
@@ -121,8 +170,10 @@ class FullyAutomatedGrader:
             print("\nTest 2: Checking tables are empty...")
             all_empty = True
             for table in required_tables:
-                if table in existing_tables:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                # Check plural first, then singular
+                table_to_check = table if table in existing_tables else singular_map.get(table, table)
+                if table_to_check in existing_tables:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table_to_check}")
                     count = cursor.fetchone()[0]
                     if count > 0:
                         all_empty = False
@@ -150,8 +201,11 @@ class FullyAutomatedGrader:
         expected = {
             'SEMESTER': ['SEMESTERTERM', 'SEMESTERYEAR'],
             'COURSES': ['COURSECODE', 'DESCRIPTION'],
+            'COURSE': ['COURSECODE', 'DESCRIPTION'],  # Singular
             'CLASSES': ['SEMESTER', 'COURSECODE', 'SEATS'],
+            'CLASS': ['SEMESTER', 'COURSECODE', 'SEATS'],  # Singular
             'STUDENTS': ['STUDENTID', 'FIRSTNAME', 'LASTNAME'],
+            'STUDENT': ['STUDENTID', 'FIRSTNAME', 'LASTNAME'],  # Singular
             'SCHEDULE': ['SEMESTER', 'COURSECODE', 'STUDENTID', 'STATUS', 'TIMESTAMP']
         }
         
@@ -380,27 +434,56 @@ class FullyAutomatedGrader:
                 self.add_failure(f"{test_name} not found", points)
     
     def find_derby_jar(self):
-        """Find Derby JAR file"""
-        common_locations = [
-            "/usr/share/java/derby.jar",
-            "/usr/lib/jvm/java-11-openjdk-amd64/lib/derby.jar",
-            str(Path.home() / "lib/derby.jar")
-        ]
+        """Find Derby JAR file - Windows and Linux compatible"""
+        # Windows locations
+        if sys.platform == "win32":
+            common_locations = [
+                r"C:\Derby\lib\derby.jar",
+                r"C:\Program Files\Derby\lib\derby.jar",
+                r"C:\Apache\Derby\lib\derby.jar",
+            ]
+            
+            # Check Java installation directories
+            java_homes = [
+                os.environ.get("JAVA_HOME"),
+                r"C:\Program Files\Java",
+                r"C:\Program Files (x86)\Java"
+            ]
+            
+            for java_home in java_homes:
+                if java_home and os.path.exists(java_home):
+                    # Search for derby.jar
+                    for root, dirs, files in os.walk(java_home):
+                        if "derby.jar" in files:
+                            common_locations.append(os.path.join(root, "derby.jar"))
+        else:
+            # Linux/Unix locations
+            common_locations = [
+                "/usr/share/java/derby.jar",
+                "/usr/lib/jvm/java-11-openjdk-amd64/lib/derby.jar",
+                str(Path.home() / "lib/derby.jar")
+            ]
         
+        # Check common locations first
         for location in common_locations:
             if os.path.exists(location):
                 return location
         
-        # Search system
-        result = subprocess.run(
-            ["find", "/usr", "-name", "derby.jar", "2>/dev/null"],
-            capture_output=True,
-            text=True,
-            shell=True
-        )
-        
-        if result.stdout:
-            return result.stdout.strip().split('\n')[0]
+        # Search system (Unix only)
+        if sys.platform != "win32":
+            try:
+                result = subprocess.run(
+                    ["find", "/usr", "-name", "derby.jar", "2>/dev/null"],
+                    capture_output=True,
+                    text=True,
+                    shell=True,
+                    timeout=10
+                )
+                
+                if result.stdout:
+                    return result.stdout.strip().split('\n')[0]
+            except:
+                pass
         
         return None
     
@@ -441,7 +524,15 @@ class FullyAutomatedGrader:
         print("FAILED TESTS:")
         print("-"*60)
         for test in self.results["failed_tests"]:
-            print(f"  ✗ {test['test']}: -{test['points_lost']} pts")
+            # Handle both string and dict formats
+            if isinstance(test, str):
+                print(f"  ✗ {test}")
+            elif isinstance(test, dict):
+                test_name = test.get('test', 'Unknown test')
+                points = test.get('points_lost', 0)
+                print(f"  ✗ {test_name}: -{points} pts")
+            else:
+                print(f"  ✗ {test}")
         
         print("\n" + "="*60)
         print(f"TOTAL AUTOMATED SCORE: {self.results['automated_score']}/{self.results['max_automated_score']}")
