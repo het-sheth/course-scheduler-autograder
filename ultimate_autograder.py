@@ -4,7 +4,6 @@ ULTIMATE 100% AUTOMATED GRADER (Windows Compatible)
 Combines everything: database, code, compilation, AND test script execution
 ZERO human intervention required!
 """
-
 import os
 import sys
 import zipfile
@@ -18,7 +17,6 @@ from datetime import datetime
 # Import our other components
 from fully_automated_grader import FullyAutomatedGrader
 from test_script_executor import TestScriptExecutor
-
 
 # ========================================
 # CRITICAL: Initialize JVM with Derby JAR
@@ -114,13 +112,44 @@ class UltimateAutomatedGrader:
             
             self.final_results["student_name"] = structural_data.get("student_name", "Unknown")
             
-            # Use the total automated score from Phase 1
-            phase1_score = structural_data.get("automated_score", 0)
+            # --- MISSING LINE ADDED HERE ---
+            total_phase1 = structural_data.get("automated_score", 0)
+            # -------------------------------
+
+            # Extract actual scores from passed tests
+            passed_tests = structural_data.get("passed_tests", [])
             
-            # Distribute across categories (rough estimate)
-            self.final_results["phase_scores"]["database"] = min(9, 55)  # Got 9 pts
-            self.final_results["phase_scores"]["code_analysis"] = min(55, 20)  # Cap at 20
-            self.final_results["phase_scores"]["compilation"] = min(15, 10)  # Cap at 10
+            db_score = 0
+            compile_score = 0
+            gui_score = 0
+            
+            for test in passed_tests:
+                test_name = test.get("test", "").lower()
+                points = test.get("points", 0)
+                
+                # Categorize by keywords
+                if any(k in test_name for k in ["table", "empty", "structure"]):
+                    db_score += points
+                elif any(k in test_name for k in ["compil", "execute", "main"]):
+                    compile_score += points
+                elif any(k in test_name for k in ["drop", "display", "waitlist", "timestamp"]):
+                    gui_score += points
+            
+            # Code analysis is everything else
+            code_score = total_phase1 - db_score - compile_score - gui_score
+            
+            self.final_results["phase_scores"]["database"] = min(db_score, 55)
+            
+            # --- LENIENT GRADING SCHEME ---
+            # If the project compiles (10 pts) and runs (5 pts), guarantee at least 15/20 for code quality.
+            # This treats missing classes/patterns as minor style deductions (-5 max).
+            if compile_score >= 10: 
+                self.final_results["phase_scores"]["code_analysis"] = max(15, min(code_score, 20))
+            else:
+                self.final_results["phase_scores"]["code_analysis"] = min(code_score, 20)
+            # ------------------------------
+
+            self.final_results["phase_scores"]["compilation"] = min(compile_score + gui_score, 10)
             
             print(f"\n✓ Phase 1 Complete")
             print(f"  Database: {self.final_results['phase_scores']['database']} pts")
@@ -172,7 +201,6 @@ class UltimateAutomatedGrader:
         self.generate_final_report()
         
         return self.work_dir / "FINAL_GRADE.json"
-    
     def find_extracted_database(self):
         """Find the extracted database directory"""
         # Check Windows temp directory first
@@ -381,7 +409,6 @@ class UltimateAutomatedGrader:
         
         return report_file
 
-
 def main():
     if len(sys.argv) < 3:
         print("="*80)
@@ -424,7 +451,6 @@ def main():
         import traceback
         traceback.print_exc()
         return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

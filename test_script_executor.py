@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Automated Test Script Executor
+Automated Test Script Executor - FIXED
 Runs the official Course Scheduler test scripts automatically
 100% automated - NO human intervention needed!
 """
-
 import jaydebeapi
-import subprocess
-import time
-import re
+import jpype
+import os
+import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
 import json
+from datetime import datetime
 
 class TestScriptExecutor:
     """
@@ -39,31 +38,105 @@ class TestScriptExecutor:
         
         # Current semester tracking
         self.current_semester = None
+
+        # Table Name Mappings (Will be detected dynamically)
+        self.tbl = {
+            'SEMESTER': 'SEMESTER',
+            'COURSES': 'COURSES',
+            'CLASSES': 'CLASSES',
+            'STUDENTS': 'STUDENTS',
+            'SCHEDULE': 'SCHEDULE'
+        }
     
     def connect_database(self):
-        """Connect to Derby database"""
+        """Connect to Derby database with auto-detection"""
         derby_jar = self.find_derby_jar()
         if not derby_jar:
             raise Exception("Derby JAR not found")
         
-        self.conn = jaydebeapi.connect(
-            "org.apache.derby.jdbc.EmbeddedDriver",
-            f"jdbc:derby:{self.database_dir}",
-            ["java", "java"],
-            derby_jar
-        )
+        # Initialize JVM if not already started
+        if not jpype.isJVMStarted():
+            if not os.environ.get('JAVA_HOME'):
+                # Try to find Java Home automatically on Windows
+                try:
+                    import subprocess
+                    result = subprocess.run(['where', 'java'], capture_output=True, text=True)
+                    if result.stdout:
+                        java_exe = result.stdout.splitlines()[0]
+                        # Go up two levels from bin/java.exe
+                        os.environ['JAVA_HOME'] = os.path.dirname(os.path.dirname(java_exe))
+                except:
+                    pass
+
+            jvm_path = jpype.getDefaultJVMPath()
+            if os.environ.get('JAVA_HOME'):
+                check_path = os.path.join(os.environ['JAVA_HOME'], 'bin', 'server', 'jvm.dll')
+                if os.path.exists(check_path):
+                    jvm_path = check_path
+            
+            jpype.startJVM(jvm_path, f"-Djava.class.path={derby_jar}", convertStrings=False)
+        
+        # Connect using the AutoloadedDriver (Works for Derby 10.14+)
+        try:
+            self.conn = jaydebeapi.connect(
+                "org.apache.derby.iapi.jdbc.AutoloadedDriver",
+                f"jdbc:derby:{self.database_dir}",
+                ["java", "java"]
+            )
+        except:
+            # Fallback for older Derby versions
+            self.conn = jaydebeapi.connect(
+                "org.apache.derby.jdbc.EmbeddedDriver",
+                f"jdbc:derby:{self.database_dir}",
+                ["java", "java"]
+            )
+
         self.cursor = self.conn.cursor()
         print("✓ Connected to database")
-    
+        
+        # DETECT TABLE NAMES (Singular vs Plural)
+        self.detect_table_names()
+
     def find_derby_jar(self):
-        """Find Derby JAR"""
-        import os
-        common = ["/usr/share/java/derby.jar"]
-        for loc in common:
+        """Find Derby JAR - Windows Compatible"""
+        common_locations = []
+        
+        if sys.platform == "win32":
+            common_locations = [
+                r"C:\Derby\lib\derby.jar",
+                r"C:\Program Files\Derby\lib\derby.jar",
+                os.path.expanduser(r"~\Desktop\db-derby-10.17.1.0-bin\lib\derby.jar")
+            ]
+        else:
+            common_locations = ["/usr/share/java/derby.jar"]
+            
+        for loc in common_locations:
             if os.path.exists(loc):
                 return loc
         return None
-    
+
+    def detect_table_names(self):
+        """Handle students using COURSE instead of COURSES"""
+        try:
+            self.cursor.execute("SELECT TABLENAME FROM SYS.SYSTABLES WHERE TABLETYPE='T'")
+            tables = [str(row[0]).upper() for row in self.cursor.fetchall()]
+            
+            # Map plural expectations to what actually exists
+            mappings = {
+                'COURSES': ['COURSE', 'COURSES'],
+                'CLASSES': ['CLASS', 'CLASSES'],
+                'STUDENTS': ['STUDENT', 'STUDENTS']
+            }
+            
+            for key, options in mappings.items():
+                for opt in options:
+                    if opt in tables:
+                        self.tbl[key] = opt
+                        print(f"  Map: {key} -> {opt}")
+                        break
+        except Exception as e:
+            print(f"⚠ Could not detect table names: {e}")
+
     def run_part1_tests(self):
         """Execute Part 1 test script"""
         print("\n" + "="*70)
@@ -269,7 +342,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "INSERT INTO SEMESTER (SEMESTERTERM, SEMESTERYEAR) VALUES (?, ?)",
+                f"INSERT INTO {self.tbl['SEMESTER']} (SEMESTERTERM, SEMESTERYEAR) VALUES (?, ?)",
                 (term, year)
             )
             self.conn.commit()
@@ -284,7 +357,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "SELECT COUNT(*) FROM SEMESTER WHERE SEMESTERTERM=? AND SEMESTERYEAR=?",
+                f"SELECT COUNT(*) FROM {self.tbl['SEMESTER']} WHERE SEMESTERTERM=? AND SEMESTERYEAR=?",
                 (term, year)
             )
             count = self.cursor.fetchone()[0]
@@ -303,7 +376,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "INSERT INTO COURSES (COURSECODE, DESCRIPTION) VALUES (?, ?)",
+                f"INSERT INTO {self.tbl['COURSES']} (COURSECODE, DESCRIPTION) VALUES (?, ?)",
                 (code, description)
             )
             self.conn.commit()
@@ -318,7 +391,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "SELECT DESCRIPTION FROM COURSES WHERE COURSECODE=?",
+                f"SELECT DESCRIPTION FROM {self.tbl['COURSES']} WHERE COURSECODE=?",
                 (code,)
             )
             result = self.cursor.fetchone()
@@ -337,7 +410,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "INSERT INTO CLASSES (SEMESTER, COURSECODE, SEATS) VALUES (?, ?, ?)",
+                f"INSERT INTO {self.tbl['CLASSES']} (SEMESTER, COURSECODE, SEATS) VALUES (?, ?, ?)",
                 (semester, course_code, seats)
             )
             self.conn.commit()
@@ -352,7 +425,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "SELECT SEATS FROM CLASSES WHERE SEMESTER=? AND COURSECODE=?",
+                f"SELECT SEATS FROM {self.tbl['CLASSES']} WHERE SEMESTER=? AND COURSECODE=?",
                 (semester, course_code)
             )
             result = self.cursor.fetchone()
@@ -371,7 +444,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "INSERT INTO STUDENTS (STUDENTID, FIRSTNAME, LASTNAME) VALUES (?, ?, ?)",
+                f"INSERT INTO {self.tbl['STUDENTS']} (STUDENTID, FIRSTNAME, LASTNAME) VALUES (?, ?, ?)",
                 (student_id, first_name, last_name)
             )
             self.conn.commit()
@@ -386,7 +459,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "SELECT FIRSTNAME, LASTNAME FROM STUDENTS WHERE STUDENTID=?",
+                f"SELECT FIRSTNAME, LASTNAME FROM {self.tbl['STUDENTS']} WHERE STUDENTID=?",
                 (student_id,)
             )
             result = self.cursor.fetchone()
@@ -405,7 +478,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                "SELECT COUNT(*) FROM CLASSES WHERE SEMESTER=?",
+                f"SELECT COUNT(*) FROM {self.tbl['CLASSES']} WHERE SEMESTER=?",
                 (semester,)
             )
             count = self.cursor.fetchone()[0]
@@ -425,15 +498,14 @@ class TestScriptExecutor:
         try:
             # Check current enrollment
             self.cursor.execute(
-                """SELECT COUNT(*) FROM SCHEDULE 
-                   WHERE SEMESTER=? AND COURSECODE=? AND STATUS='S'""",
+                f"SELECT COUNT(*) FROM {self.tbl['SCHEDULE']} WHERE SEMESTER=? AND COURSECODE=? AND STATUS='S'",
                 (semester, course_code)
             )
             enrolled = self.cursor.fetchone()[0]
             
             # Get class capacity
             self.cursor.execute(
-                "SELECT SEATS FROM CLASSES WHERE SEMESTER=? AND COURSECODE=?",
+                f"SELECT SEATS FROM {self.tbl['CLASSES']} WHERE SEMESTER=? AND COURSECODE=?",
                 (semester, course_code)
             )
             seats = self.cursor.fetchone()[0]
@@ -443,10 +515,9 @@ class TestScriptExecutor:
             
             # Insert
             from datetime import datetime
-            timestamp = datetime.now()
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
             self.cursor.execute(
-                """INSERT INTO SCHEDULE (SEMESTER, COURSECODE, STUDENTID, STATUS, TIMESTAMP)
-                   VALUES (?, ?, ?, ?, ?)""",
+                f"INSERT INTO {self.tbl['SCHEDULE']} (SEMESTER, COURSECODE, STUDENTID, STATUS, TIMESTAMP) VALUES (?, ?, ?, ?, ?)",
                 (semester, course_code, student_id, status, timestamp)
             )
             self.conn.commit()
@@ -466,9 +537,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                """SELECT COURSECODE, STATUS FROM SCHEDULE 
-                   WHERE STUDENTID=? AND SEMESTER=?
-                   ORDER BY COURSECODE""",
+                f"SELECT COURSECODE, STATUS FROM {self.tbl['SCHEDULE']} WHERE STUDENTID=? AND SEMESTER=? ORDER BY COURSECODE",
                 (student_id, semester)
             )
             actual = [(row[0], row[1]) for row in self.cursor.fetchall()]
@@ -489,18 +558,14 @@ class TestScriptExecutor:
         try:
             # Get scheduled students
             self.cursor.execute(
-                """SELECT STUDENTID FROM SCHEDULE 
-                   WHERE SEMESTER=? AND COURSECODE=? AND STATUS='S'
-                   ORDER BY TIMESTAMP""",
+                f"SELECT STUDENTID FROM {self.tbl['SCHEDULE']} WHERE SEMESTER=? AND COURSECODE=? AND STATUS='S' ORDER BY TIMESTAMP",
                 (semester, course_code)
             )
             actual_scheduled = [row[0] for row in self.cursor.fetchall()]
             
             # Get waitlisted students
             self.cursor.execute(
-                """SELECT STUDENTID FROM SCHEDULE 
-                   WHERE SEMESTER=? AND COURSECODE=? AND STATUS='W'
-                   ORDER BY TIMESTAMP""",
+                f"SELECT STUDENTID FROM {self.tbl['SCHEDULE']} WHERE SEMESTER=? AND COURSECODE=? AND STATUS='W' ORDER BY TIMESTAMP",
                 (semester, course_code)
             )
             actual_waitlisted = [row[0] for row in self.cursor.fetchall()]
@@ -520,20 +585,20 @@ class TestScriptExecutor:
         try:
             # Delete from all schedules
             self.cursor.execute(
-                "DELETE FROM SCHEDULE WHERE STUDENTID=?",
+                f"DELETE FROM {self.tbl['SCHEDULE']} WHERE STUDENTID=?",
                 (student_id,)
             )
             
             # Delete student
             self.cursor.execute(
-                "DELETE FROM STUDENTS WHERE STUDENTID=?",
+                f"DELETE FROM {self.tbl['STUDENTS']} WHERE STUDENTID=?",
                 (student_id,)
             )
             self.conn.commit()
             
             # Verify student is gone
             self.cursor.execute(
-                "SELECT COUNT(*) FROM STUDENTS WHERE STUDENTID=?",
+                f"SELECT COUNT(*) FROM {self.tbl['STUDENTS']} WHERE STUDENTID=?",
                 (student_id,)
             )
             count = self.cursor.fetchone()[0]
@@ -552,8 +617,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                """SELECT STATUS FROM SCHEDULE 
-                   WHERE STUDENTID=? AND SEMESTER=? AND COURSECODE=?""",
+                f"SELECT STATUS FROM {self.tbl['SCHEDULE']} WHERE STUDENTID=? AND SEMESTER=? AND COURSECODE=?",
                 (student_id, semester, course_code)
             )
             result = self.cursor.fetchone()
@@ -573,8 +637,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                """DELETE FROM SCHEDULE 
-                   WHERE STUDENTID=? AND SEMESTER=? AND COURSECODE=?""",
+                f"DELETE FROM {self.tbl['SCHEDULE']} WHERE STUDENTID=? AND SEMESTER=? AND COURSECODE=?",
                 (student_id, semester, course_code)
             )
             self.conn.commit()
@@ -589,8 +652,7 @@ class TestScriptExecutor:
         
         try:
             self.cursor.execute(
-                """SELECT COUNT(*) FROM SCHEDULE 
-                   WHERE STUDENTID=? AND SEMESTER=? AND COURSECODE=?""",
+                f"SELECT COUNT(*) FROM {self.tbl['SCHEDULE']} WHERE STUDENTID=? AND SEMESTER=? AND COURSECODE=?",
                 (student_id, semester, course_code)
             )
             count = self.cursor.fetchone()[0]
@@ -610,13 +672,13 @@ class TestScriptExecutor:
         try:
             # Delete all schedules for this class
             self.cursor.execute(
-                "DELETE FROM SCHEDULE WHERE SEMESTER=? AND COURSECODE=?",
+                f"DELETE FROM {self.tbl['SCHEDULE']} WHERE SEMESTER=? AND COURSECODE=?",
                 (semester, course_code)
             )
             
             # Delete class
             self.cursor.execute(
-                "DELETE FROM CLASSES WHERE SEMESTER=? AND COURSECODE=?",
+                f"DELETE FROM {self.tbl['CLASSES']} WHERE SEMESTER=? AND COURSECODE=?",
                 (semester, course_code)
             )
             self.conn.commit()
@@ -672,7 +734,8 @@ class TestScriptExecutor:
         print("="*70)
         
         # Save report
-        report_file = Path("/tmp/test_execution_report.json")
+        import tempfile
+        report_file = Path(tempfile.gettempdir()) / "test_execution_report.json"
         with open(report_file, 'w') as f:
             json.dump(self.results, f, indent=2)
         
@@ -683,7 +746,6 @@ class TestScriptExecutor:
         if self.conn:
             self.conn.close()
             print("\n✓ Database connection closed")
-
 
 def main():
     import sys
@@ -705,10 +767,9 @@ def main():
             executor.run_part1_tests()
         else:
             executor.run_part2_tests()
-        
+            
     finally:
         executor.cleanup()
-
 
 if __name__ == "__main__":
     main()
