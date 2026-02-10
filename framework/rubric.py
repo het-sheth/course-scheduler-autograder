@@ -32,6 +32,7 @@ class GradingResult:
     source_code: str = ""
     compiler_errors: str = ""
     oop_notes: List[str] = field(default_factory=list)
+    expected_output: str = ""
     error_message: str = ""
 
     def calculate_score(self):

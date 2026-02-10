@@ -197,6 +197,12 @@ function collapseAll() {
             compiler_html = f"""<div class="section-label">Compiler Output</div>
 <pre class="compiler-error">{html.escape(r.compiler_errors)}</pre>"""
 
+        # Expected output
+        expected_html = ""
+        if r.expected_output:
+            expected_html = f"""<div class="section-label">Expected Output</div>
+<pre class="expected-box">{html.escape(r.expected_output)}</pre>"""
+
         # Program output
         output_html = ""
         if r.actual_output:
@@ -215,6 +221,7 @@ function collapseAll() {
     </table>
     {oop_html}
     {compiler_html}
+    {expected_html}
     {output_html}
     <div class="section-label">Source Code</div>
     <pre>{html.escape(r.source_code)}</pre>

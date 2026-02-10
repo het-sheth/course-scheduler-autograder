@@ -68,7 +68,8 @@ class BaseGrader(ABC):
             actual_output=output,
             source_code=self.source_code,
             compiler_errors=compile_errors,
-            oop_notes=oop_notes
+            oop_notes=oop_notes,
+            expected_output=self.get_expected_output()
         )
         result.calculate_score()
 
@@ -104,6 +105,10 @@ class BaseGrader(ABC):
                     item.deduction = item.max_deduction
                     item.passed = False
                     item.notes = "Could not verify: runtime error"
+
+    def get_expected_output(self) -> str:
+        """Return expected output text for the report. Override per assignment."""
+        return ""
 
     def check_oop_practices(self) -> List[str]:
         """Check for common OOP practice issues. Override for assignment-specific checks."""

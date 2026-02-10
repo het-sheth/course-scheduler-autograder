@@ -23,3 +23,18 @@ for rate in RATES:
 
 # Convenient lookup: all expected values as formatted strings
 EXPECTED_STRINGS = {k: f"{v:.2f}" for k, v in EXPECTED.items()}
+
+
+def get_expected_output_text() -> str:
+    """Return a formatted expected output string for the report."""
+    lines = []
+    for rate in RATES:
+        lines.append(f"Monthly payments at {rate}% interest rate:")
+        lines.append("Loan       3 years(36m)  5 years(60m)  6 years(72m)")
+        for label, principal in PRINCIPALS.items():
+            vals = []
+            for _, months in TERMS:
+                vals.append(f"${EXPECTED[(rate, months, label)]:.2f}")
+            lines.append(f"  {label}(${principal:,.2f})  {'    '.join(vals)}")
+        lines.append("")
+    return '\n'.join(lines)
