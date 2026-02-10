@@ -10,3 +10,4 @@ build/
 .env
 derby.log
 *_report.html
+sample_submissions/
