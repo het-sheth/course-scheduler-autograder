@@ -5,58 +5,78 @@ import re
 import subprocess
 import shutil
 from pathlib import Path
+from typing import List, Union
 
 
 class JavaCompiler:
-    """Compiles and runs a single Java source file, capturing output."""
+    """Compiles and runs Java source files, capturing output."""
 
-    def __init__(self, java_file: Path, work_dir: Path):
-        self.java_file = java_file
+    def __init__(self, java_files: Union[Path, List[Path]], work_dir: Path):
+        if isinstance(java_files, Path):
+            java_files = [java_files]
+        self.java_files = java_files
         self.work_dir = work_dir
         self.build_dir = work_dir / "build"
         self.build_dir.mkdir(parents=True, exist_ok=True)
-        self.source = java_file.read_text(errors='ignore')
-        self.package_name = self._detect_package()
-        self.class_name = self._detect_class_name()
+        self._file_info = []
+        self._analyze_files()
 
-    def _detect_package(self) -> str:
-        match = re.search(r'package\s+([\w.]+)\s*;', self.source)
+    def _analyze_files(self):
+        for f in self.java_files:
+            source = f.read_text(errors='ignore')
+            pkg = self._detect_package(source)
+            cls = self._detect_class_name(source, f)
+            has_main = bool(re.search(r'public\s+static\s+void\s+main', source))
+            self._file_info.append({
+                'file': f, 'package': pkg, 'class_name': cls,
+                'has_main': has_main
+            })
+
+    @staticmethod
+    def _detect_package(source: str) -> str:
+        match = re.search(r'package\s+([\w.]+)\s*;', source)
         return match.group(1) if match else ""
 
-    def _detect_class_name(self) -> str:
-        match = re.search(r'public\s+class\s+(\w+)', self.source)
-        return match.group(1) if match else self.java_file.stem
+    @staticmethod
+    def _detect_class_name(source: str, java_file: Path) -> str:
+        match = re.search(r'public\s+class\s+(\w+)', source)
+        return match.group(1) if match else java_file.stem
 
     @property
-    def fully_qualified_name(self) -> str:
-        if self.package_name:
-            return f"{self.package_name}.{self.class_name}"
-        return self.class_name
+    def main_class_fqn(self) -> str:
+        """Fully qualified name of the class with main()."""
+        for info in self._file_info:
+            if info['has_main']:
+                if info['package']:
+                    return f"{info['package']}.{info['class_name']}"
+                return info['class_name']
+        # Fallback to first file
+        info = self._file_info[0]
+        if info['package']:
+            return f"{info['package']}.{info['class_name']}"
+        return info['class_name']
 
     def compile(self, timeout: int = 30) -> tuple:
         """
-        Compile the Java file. Sets up package directory structure if needed.
+        Compile all Java files. Sets up package directory structure if needed.
         Returns (success: bool, error_output: str).
         """
-        # Set up source directory with correct package structure
         src_root = self.work_dir / "src"
         src_root.mkdir(parents=True, exist_ok=True)
 
-        if self.package_name:
-            package_dir = src_root / self.package_name.replace('.', os.sep)
-            package_dir.mkdir(parents=True, exist_ok=True)
-            target_file = package_dir / self.java_file.name
-        else:
-            target_file = src_root / self.java_file.name
+        target_files = []
+        for info in self._file_info:
+            if info['package']:
+                pkg_dir = src_root / info['package'].replace('.', os.sep)
+                pkg_dir.mkdir(parents=True, exist_ok=True)
+                target = pkg_dir / info['file'].name
+            else:
+                target = src_root / info['file'].name
+            shutil.copy2(info['file'], target)
+            target_files.append(target)
 
-        shutil.copy2(self.java_file, target_file)
-
-        cmd = [
-            "javac",
-            "-d", str(self.build_dir),
-            "-sourcepath", str(src_root),
-            str(target_file)
-        ]
+        cmd = ["javac", "-d", str(self.build_dir), "-sourcepath", str(src_root)]
+        cmd.extend(str(t) for t in target_files)
 
         try:
             result = subprocess.run(
@@ -72,13 +92,13 @@ class JavaCompiler:
 
     def run(self, timeout: int = 10) -> tuple:
         """
-        Run the compiled class and capture stdout.
+        Run the compiled main class and capture stdout.
         Returns (success: bool, stdout_output: str).
         """
         cmd = [
             "java",
             "-cp", str(self.build_dir),
-            self.fully_qualified_name
+            self.main_class_fqn
         ]
 
         try:

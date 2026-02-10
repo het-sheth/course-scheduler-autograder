@@ -1,8 +1,9 @@
 """Abstract base class for assignment graders."""
 
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Union
 
 from framework.rubric import RubricItem, GradingResult
 from framework.java_ast_analyzer import JavaASTAnalyzer
@@ -16,21 +17,72 @@ class BaseGrader(ABC):
     Implements the grading pipeline: AST analysis -> compile -> run -> output check.
     """
 
-    def __init__(self, java_file: Path, student_name: str, student_id: str):
-        self.java_file = java_file
+    def __init__(self, java_files: Union[Path, List[Path]], student_name: str, student_id: str):
+        if isinstance(java_files, Path):
+            java_files = [java_files]
+        self.java_files = java_files
         self.student_name = student_name
         self.student_id = student_id
         self.source_code = ""
         self.analyzer = None
         self.work_dir = create_temp_dir(f"grade_{student_name}_")
 
+    def _find_class_file(self) -> Path:
+        """
+        Find the primary class file for AST analysis (not the test/main file).
+        Heuristic: prefer files WITHOUT main(), then prefer files without 'test'/'main' in name.
+        """
+        if len(self.java_files) == 1:
+            return self.java_files[0]
+
+        # Separate files by whether they have main()
+        main_pattern = re.compile(r'public\s+static\s+void\s+main')
+        non_main = []
+        with_main = []
+        for f in self.java_files:
+            source = f.read_text(errors='ignore')
+            if main_pattern.search(source):
+                with_main.append(f)
+            else:
+                non_main.append(f)
+
+        # Prefer non-main files (the class definition)
+        if non_main:
+            # Among non-main files, avoid ones named 'test' or 'main'
+            for f in non_main:
+                if 'test' not in f.stem.lower() and 'main' not in f.stem.lower():
+                    return f
+            return non_main[0]
+
+        # All files have main - pick the one without 'test'/'main' in name
+        for f in with_main:
+            if 'test' not in f.stem.lower() and 'main' not in f.stem.lower():
+                return f
+        return with_main[0]
+
     def grade(self) -> GradingResult:
         """Template method: run the full grading pipeline."""
-        # Read source
-        self.source_code = self.java_file.read_text(errors='ignore')
+        # Read all source files
+        all_sources = {}
+        for f in self.java_files:
+            all_sources[f] = f.read_text(errors='ignore')
 
-        # Parse AST
-        self.analyzer = JavaASTAnalyzer(self.source_code)
+        combined_source = "\n".join(all_sources.values())
+
+        # Build display source with file headers
+        if len(self.java_files) > 1:
+            parts = []
+            for f in self.java_files:
+                parts.append(f"// === {f.name} ===\n{all_sources[f]}")
+            self.source_code = "\n\n".join(parts)
+        else:
+            self.source_code = all_sources[self.java_files[0]]
+
+        # Create AST analyzer from the class file
+        class_file = self._find_class_file()
+        self.analyzer = JavaASTAnalyzer(all_sources[class_file])
+        # Allow source_contains to search ALL files
+        self.analyzer.all_source = combined_source
 
         # Define rubric items
         rubric_items = self.define_rubric()
@@ -38,8 +90,8 @@ class BaseGrader(ABC):
         # Phase 1: Static analysis
         self.check_class_structure(rubric_items)
 
-        # Phase 2: Compile
-        compiler = JavaCompiler(self.java_file, self.work_dir)
+        # Phase 2: Compile (all files)
+        compiler = JavaCompiler(self.java_files, self.work_dir)
         compile_ok, compile_errors = compiler.compile()
 
         # Phase 3: Run

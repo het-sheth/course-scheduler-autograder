@@ -117,11 +117,8 @@ def main():
             results.append(result)
             continue
 
-        # Use the first/primary java file
-        java_file = java_files[0]
-
         try:
-            grader = GraderClass(java_file, sub.student_name, sub.canvas_id)
+            grader = GraderClass(java_files, sub.student_name, sub.canvas_id)
             result = grader.grade()
             results.append(result)
             print(f"{result.total_score}/100 ({result.letter_grade})")

@@ -36,6 +36,7 @@ class JavaASTAnalyzer:
 
     def __init__(self, source_code: str):
         self.source = source_code
+        self.all_source = source_code  # Can be set to combined source of all files
         self.tree = None
         self.parse_error = None
         self._try_parse()
@@ -122,7 +123,8 @@ class JavaASTAnalyzer:
         return bool(re.search(r'public\s+static\s+void\s+main\s*\(', self.source))
 
     def source_contains(self, pattern: str, flags=0) -> bool:
-        return bool(re.search(pattern, self.source, flags))
+        """Search all source files (if set) for the given pattern."""
+        return bool(re.search(pattern, self.all_source, flags))
 
     def get_package(self) -> str:
         if self.parsed and self.tree.package:
