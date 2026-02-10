@@ -173,8 +173,8 @@ def _check_loan_objects(analyzer: JavaASTAnalyzer, items: List[RubricItem]):
     """Check (main_a): creates loan1($5000) and loan2($31000) via AST/regex."""
     item = get_item(items, "main_a")
 
-    has_loan1 = analyzer.source_contains(r'LoanAccount\s*\(\s*5000(?:\.0*)?\s*\)', re.IGNORECASE)
-    has_loan2 = analyzer.source_contains(r'LoanAccount\s*\(\s*31000(?:\.0*)?\s*\)', re.IGNORECASE)
+    has_loan1 = analyzer.source_contains(r'new\s+\w+\s*\(\s*5000(?:\.0*)?\s*\)')
+    has_loan2 = analyzer.source_contains(r'new\s+\w+\s*\(\s*31000(?:\.0*)?\s*\)')
 
     if not has_loan1 and not has_loan2:
         item.deduction = item.max_deduction
