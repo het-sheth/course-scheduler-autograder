@@ -1,5 +1,6 @@
 """PA1-specific AST/static analysis checks."""
 
+import re
 from typing import List
 from framework.rubric import RubricItem
 from framework.java_ast_analyzer import JavaASTAnalyzer
@@ -108,18 +109,12 @@ def _check_calculate_monthly_payment(methods, analyzer: JavaASTAnalyzer, items: 
     """Check (d): calculateMonthlyPayment method exists with correct signature."""
     item = get_item(items, "class_d")
 
-    matching = [m for m in methods if m.name == "calculateMonthlyPayment"]
+    # Case-insensitive match on method name
+    matching = [m for m in methods if m.name.lower() == "calculatemonthlypayment"]
     if not matching:
-        # Also check for common misspellings
-        close = [m for m in methods if "monthly" in m.name.lower() and "payment" in m.name.lower()]
-        if close:
-            item.deduction = 3
-            item.passed = False
-            item.notes = f"Method name is '{close[0].name}', expected 'calculateMonthlyPayment'"
-        else:
-            item.deduction = item.max_deduction
-            item.passed = False
-            item.notes = "Method 'calculateMonthlyPayment' not found"
+        item.deduction = item.max_deduction
+        item.passed = False
+        item.notes = "Method 'calculateMonthlyPayment' not found"
         return
 
     method = matching[0]
@@ -178,8 +173,8 @@ def _check_loan_objects(analyzer: JavaASTAnalyzer, items: List[RubricItem]):
     """Check (main_a): creates loan1($5000) and loan2($31000) via AST/regex."""
     item = get_item(items, "main_a")
 
-    has_loan1 = analyzer.source_contains(r'LoanAccount\s*\(\s*5000(?:\.0*)?\s*\)')
-    has_loan2 = analyzer.source_contains(r'LoanAccount\s*\(\s*31000(?:\.0*)?\s*\)')
+    has_loan1 = analyzer.source_contains(r'LoanAccount\s*\(\s*5000(?:\.0*)?\s*\)', re.IGNORECASE)
+    has_loan2 = analyzer.source_contains(r'LoanAccount\s*\(\s*31000(?:\.0*)?\s*\)', re.IGNORECASE)
 
     if not has_loan1 and not has_loan2:
         item.deduction = item.max_deduction
