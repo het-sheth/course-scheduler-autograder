@@ -93,10 +93,13 @@ class SubmissionHandler:
         )
         return sub
 
-    def extract_java_files(self, submission: StudentSubmission) -> List[Path]:
+    def extract_java_files(self, submission: StudentSubmission,
+                           require_project_structure: bool = True) -> List[Path]:
         """
         Extract Java files from a student's zip.
-        Handles both NetBeans projects and raw .java files.
+        If require_project_structure is True, the zip must contain a project
+        folder with a src/ directory (NetBeans format). Raw .java files at
+        the zip root are rejected.
         Returns list of paths to extracted .java files.
         """
         extract_dir = self.temp_dir / f"student_{submission.canvas_id or submission.student_name}"
@@ -120,8 +123,17 @@ class SubmissionHandler:
             submission.error = "No .java files found in submission"
             return []
 
-        # Prefer files in src/ directories (NetBeans project structure)
+        # Check for proper project structure (must have src/ directory)
         src_files = [f for f in java_files if 'src' in f.parts]
+
+        if require_project_structure and not src_files:
+            submission.error = (
+                "Improper submission format: no project structure found. "
+                "Expected a zipped NetBeans project folder containing a src/ directory. "
+                "Student submitted raw .java file(s) without project structure."
+            )
+            return []
+
         if src_files:
             java_files = src_files
 
