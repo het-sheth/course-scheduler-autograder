@@ -9,3 +9,4 @@ dist/
 build/
 .env
 derby.log
+*_report.html
