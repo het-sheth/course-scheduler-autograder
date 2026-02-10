@@ -126,6 +126,16 @@ class JavaASTAnalyzer:
         """Search all source files (if set) for the given pattern."""
         return bool(re.search(pattern, self.all_source, flags))
 
+    def get_parent_class(self) -> Optional[str]:
+        """Return the name of the parent class (extends clause), or None."""
+        if not self.parsed:
+            return self._regex_parent_class()
+        for _, node in self.tree:
+            if isinstance(node, javalang.tree.ClassDeclaration):
+                if node.extends:
+                    return node.extends.name
+        return None
+
     def get_package(self) -> str:
         if self.parsed and self.tree.package:
             return self.tree.package.name
@@ -173,6 +183,10 @@ class JavaASTAnalyzer:
                     modifiers=modifiers
                 ))
         return methods
+
+    def _regex_parent_class(self) -> Optional[str]:
+        match = re.search(r'class\s+\w+\s+extends\s+(\w+)', self.source)
+        return match.group(1) if match else None
 
     def _regex_constructors(self) -> List[ConstructorInfo]:
         constructors = []

@@ -55,8 +55,18 @@ class GradingResult:
 
     @property
     def class_deductions(self) -> int:
-        return sum(i.deduction for i in self.rubric_items if i.category == "LoanAccount Class")
+        return sum(i.deduction for i in self.rubric_items
+                   if i.category != "Main Method")
 
     @property
     def main_deductions(self) -> int:
-        return sum(i.deduction for i in self.rubric_items if i.category == "Main Method")
+        return sum(i.deduction for i in self.rubric_items
+                   if i.category == "Main Method")
+
+    @property
+    def deductions_by_category(self) -> dict:
+        cats = {}
+        for item in self.rubric_items:
+            cats.setdefault(item.category, 0)
+            cats[item.category] += item.deduction
+        return cats

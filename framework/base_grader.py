@@ -62,25 +62,25 @@ class BaseGrader(ABC):
 
     def grade(self) -> GradingResult:
         """Template method: run the full grading pipeline."""
-        # Read all source files
-        all_sources = {}
+        # Read all source files (stored on self for subclass access)
+        self.all_sources = {}
         for f in self.java_files:
-            all_sources[f] = f.read_text(errors='ignore')
+            self.all_sources[f] = f.read_text(errors='ignore')
 
-        combined_source = "\n".join(all_sources.values())
+        combined_source = "\n".join(self.all_sources.values())
 
         # Build display source with file headers
         if len(self.java_files) > 1:
             parts = []
             for f in self.java_files:
-                parts.append(f"// === {f.name} ===\n{all_sources[f]}")
+                parts.append(f"// === {f.name} ===\n{self.all_sources[f]}")
             self.source_code = "\n\n".join(parts)
         else:
-            self.source_code = all_sources[self.java_files[0]]
+            self.source_code = self.all_sources[self.java_files[0]]
 
         # Create AST analyzer from the class file
         class_file = self._find_class_file()
-        self.analyzer = JavaASTAnalyzer(all_sources[class_file])
+        self.analyzer = JavaASTAnalyzer(self.all_sources[class_file])
         # Allow source_contains to search ALL files
         self.analyzer.all_source = combined_source
 

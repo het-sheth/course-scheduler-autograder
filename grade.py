@@ -22,8 +22,8 @@ from framework.rubric import GradingResult
 
 ASSIGNMENT_GRADERS = {
     'pa1': ('assignments.pa1.grader', 'PA1Grader'),
+    'pa2': ('assignments.pa2.grader', 'PA2Grader'),
     # Future assignments:
-    # 'pa2': ('assignments.pa2.grader', 'PA2Grader'),
     # 'pa3': ('assignments.pa3.grader', 'PA3Grader'),
     # 'pa4': ('assignments.pa4.grader', 'PA4Grader'),
     # 'pa5': ('assignments.pa5.grader', 'PA5Grader'),
@@ -33,6 +33,7 @@ ASSIGNMENT_GRADERS = {
 
 ASSIGNMENT_NAMES = {
     'pa1': 'PA1 - Loan Account',
+    'pa2': 'PA2 - Loan Account Hierarchy',
 }
 
 

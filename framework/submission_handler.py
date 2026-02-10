@@ -116,8 +116,11 @@ class SubmissionHandler:
             submission.error = f"Extraction error: {e}"
             return []
 
-        # Find all .java files
-        java_files = list(extract_dir.rglob("*.java"))
+        # Find all .java files, excluding macOS resource forks and __MACOSX dirs
+        java_files = [
+            f for f in extract_dir.rglob("*.java")
+            if '__MACOSX' not in f.parts and not f.name.startswith('._')
+        ]
 
         if not java_files:
             submission.error = "No .java files found in submission"
