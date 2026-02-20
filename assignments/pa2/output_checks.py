@@ -28,8 +28,11 @@ def check_output(items: List[RubricItem], output: str):
     """Run all output verification checks for PA2."""
     _check_main_code(items, output)
     _check_formatting(items, output)
+    # Positive overrides: upgrade AST FAILs if output proves methods work
     _override_tostring_from_output(items, output)
     _override_calculate_from_output(items, output)
+    # Negative overrides: downgrade AST PASSes if output proves methods broken
+    _negative_override_calculate_from_output(items, output)
 
 
 def _check_main_code(items: List[RubricItem], output: str):
@@ -55,7 +58,10 @@ def _check_main_code(items: List[RubricItem], output: str):
     if not _value_in_output(UNSECURED_LOAN["payment"], output):
         issues.append("unsecured loan payment not found")
 
-    if len(issues) >= 4:
+    # Count how many payment values are wrong (these are the critical computed values)
+    payment_issues = sum(1 for i in issues if 'payment' in i)
+
+    if len(issues) >= 4 or payment_issues >= 3:
         item.deduction = item.max_deduction
         item.passed = False
         item.notes = "Main method output mostly missing: " + "; ".join(issues)
@@ -176,3 +182,27 @@ def _override_calculate_from_output(items: List[RubricItem], output: str):
         item.deduction = 3
         item.passed = False
         item.notes = f"Formula partially correct: {payments_found}/3 payments match"
+
+
+def _negative_override_calculate_from_output(items: List[RubricItem], output: str):
+    """If AST passed la_calculate but output shows payments are wrong, fail it."""
+    item = get_item(items, "la_calculate")
+    if not item.passed:
+        return  # Already failed, nothing to override
+
+    payments_found = 0
+    if _value_in_output(CAR_LOAN["payment"], output):
+        payments_found += 1
+    if _value_in_output(PRIMARY_MORTGAGE["payment"], output):
+        payments_found += 1
+    if _value_in_output(UNSECURED_LOAN["payment"], output):
+        payments_found += 1
+
+    if payments_found == 0:
+        item.deduction = item.max_deduction
+        item.passed = False
+        item.notes = "Formula incorrect: no expected payment values found in output"
+    elif payments_found == 1:
+        item.deduction = 5
+        item.passed = False
+        item.notes = f"Formula may be incorrect: only {payments_found}/3 payments match"

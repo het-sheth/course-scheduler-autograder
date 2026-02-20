@@ -37,34 +37,61 @@ def _find_analyzer(class_map: dict, *names) -> Optional[JavaASTAnalyzer]:
     return None
 
 
+def _find_base_loan_class(class_map: dict):
+    """Find the base loan account class by name variants or by characteristic properties.
+    Returns (lowercase_name, analyzer) or (None, None)."""
+    # Try known name variants first
+    for name in ('loanaccount', 'loanaccounthierarchy', 'loan', 'loanclass', 'baseloan'):
+        if name in class_map:
+            return name, class_map[name]
+
+    # Fallback: find by characteristic properties (principal + rate + months)
+    skip = {'address', 'carloan', 'primarymortgage', 'unsecuredloan',
+            'main', 'test', 'customer'}
+    for name, analyzer in class_map.items():
+        if name in skip:
+            continue
+        fields = analyzer.get_fields()
+        field_names = {f.name.lower() for f in fields}
+        has_principal = any(n in field_names for n in ('principal', 'principle', 'loanamount'))
+        has_rate = any(n in field_names for n in ('annualinterestrate', 'annualinterest', 'interestrate', 'rate'))
+        has_months = any(n in field_names for n in ('months', 'numberofmonths', 'term', 'nummonths', 'loanterm'))
+        if has_principal and has_rate and has_months:
+            return name, analyzer
+
+    return None, None
+
+
 def check_class_structure(java_files: List[Path], all_sources: dict, items: List[RubricItem]):
     """Run all PA2 class structure checks."""
     class_map = _build_class_map(java_files, all_sources)
 
-    _check_loan_account(class_map, items)
-    _check_car_loan(class_map, items)
-    _check_primary_mortgage(class_map, items)
-    _check_unsecured_loan(class_map, items)
+    base_name = _check_loan_account(class_map, items)
+    _check_car_loan(class_map, items, base_name)
+    _check_primary_mortgage(class_map, items, base_name)
+    _check_unsecured_loan(class_map, items, base_name)
     _check_address(class_map, items)
 
 
 # ---- LoanAccount Class ----
 
-def _check_loan_account(class_map: dict, items: List[RubricItem]):
-    analyzer = _find_analyzer(class_map, 'LoanAccount', 'Loanaccount', 'loanaccount')
+def _check_loan_account(class_map: dict, items: List[RubricItem]) -> str:
+    """Check LoanAccount class structure. Returns the lowercase name of the found base class."""
+    base_name, analyzer = _find_base_loan_class(class_map)
     if not analyzer:
         for item_id in ('la_props', 'la_constructor', 'la_calculate', 'la_getters', 'la_tostring'):
             item = get_item(items, item_id)
             item.deduction = item.max_deduction
             item.passed = False
             item.notes = "LoanAccount class not found"
-        return
+        return 'loanaccount'
 
     _check_la_properties(analyzer, items)
     _check_la_constructor(analyzer, items)
     _check_la_calculate(analyzer, items)
     _check_la_getters(analyzer, items)
     _check_la_tostring(analyzer, items)
+    return base_name
 
 
 def _check_la_properties(analyzer: JavaASTAnalyzer, items: List[RubricItem]):
@@ -173,7 +200,7 @@ def _check_la_tostring(analyzer: JavaASTAnalyzer, items: List[RubricItem]):
 
 # ---- CarLoan Class ----
 
-def _check_car_loan(class_map: dict, items: List[RubricItem]):
+def _check_car_loan(class_map: dict, items: List[RubricItem], base_class_name: str = 'loanaccount'):
     analyzer = _find_analyzer(class_map, 'CarLoan', 'Carloan', 'carloan')
     if not analyzer:
         for item_id in ('cl_extends', 'cl_props', 'cl_constructor', 'cl_tostring'):
@@ -186,7 +213,7 @@ def _check_car_loan(class_map: dict, items: List[RubricItem]):
     # Check extends
     item = get_item(items, "cl_extends")
     parent = analyzer.get_parent_class()
-    if not parent or parent.lower() != "loanaccount":
+    if not parent or parent.lower() != base_class_name:
         item.deduction = item.max_deduction
         item.passed = False
         item.notes = f"CarLoan does not extend LoanAccount (extends: {parent or 'nothing'})"
@@ -227,7 +254,7 @@ def _check_car_loan(class_map: dict, items: List[RubricItem]):
 
 # ---- PrimaryMortgage Class ----
 
-def _check_primary_mortgage(class_map: dict, items: List[RubricItem]):
+def _check_primary_mortgage(class_map: dict, items: List[RubricItem], base_class_name: str = 'loanaccount'):
     analyzer = _find_analyzer(class_map, 'PrimaryMortgage', 'Primarymortgage',
                               'primarymortgage', 'Mortgage', 'MortgageLoan')
     if not analyzer:
@@ -241,7 +268,7 @@ def _check_primary_mortgage(class_map: dict, items: List[RubricItem]):
     # Check extends
     item = get_item(items, "pm_extends")
     parent = analyzer.get_parent_class()
-    if not parent or parent.lower() != "loanaccount":
+    if not parent or parent.lower() != base_class_name:
         item.deduction = item.max_deduction
         item.passed = False
         item.notes = f"PrimaryMortgage does not extend LoanAccount (extends: {parent or 'nothing'})"
@@ -294,7 +321,7 @@ def _check_primary_mortgage(class_map: dict, items: List[RubricItem]):
 
 # ---- UnsecuredLoan Class ----
 
-def _check_unsecured_loan(class_map: dict, items: List[RubricItem]):
+def _check_unsecured_loan(class_map: dict, items: List[RubricItem], base_class_name: str = 'loanaccount'):
     analyzer = _find_analyzer(class_map, 'UnsecuredLoan', 'Unsecuredloan',
                               'unsecuredloan', 'PersonalLoan')
     if not analyzer:
@@ -308,7 +335,7 @@ def _check_unsecured_loan(class_map: dict, items: List[RubricItem]):
     # Check extends
     item = get_item(items, "ul_extends")
     parent = analyzer.get_parent_class()
-    if not parent or parent.lower() != "loanaccount":
+    if not parent or parent.lower() != base_class_name:
         item.deduction = item.max_deduction
         item.passed = False
         item.notes = f"UnsecuredLoan does not extend LoanAccount (extends: {parent or 'nothing'})"
