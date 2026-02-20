@@ -30,10 +30,17 @@ def _build_class_map(java_files: List[Path], all_sources: dict) -> Dict[str, Jav
 
 
 def _find_analyzer(class_map: dict, *names) -> Optional[JavaASTAnalyzer]:
-    """Find analyzer for a class by trying multiple name variants."""
+    """Find analyzer for a class by trying exact names, then substring match."""
+    # Exact match first
     for name in names:
         if name.lower() in class_map:
             return class_map[name.lower()]
+    # Substring match: find any class whose name contains one of the search terms
+    for name in names:
+        key = name.lower()
+        for class_name, analyzer in class_map.items():
+            if key in class_name:
+                return analyzer
     return None
 
 

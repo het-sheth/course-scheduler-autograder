@@ -26,10 +26,43 @@ def _build_class_map(java_files: List[Path], all_sources: dict) -> Dict[str, Jav
 
 
 def _find_analyzer(class_map: dict, *names) -> Optional[JavaASTAnalyzer]:
-    """Find analyzer for a class by trying multiple name variants."""
+    """Find analyzer for a class by trying exact names, then substring match."""
+    # Exact match first
     for name in names:
         if name.lower() in class_map:
             return class_map[name.lower()]
+    # Substring match: find any class whose name contains one of the search terms
+    for name in names:
+        key = name.lower()
+        for class_name, analyzer in class_map.items():
+            if key in class_name:
+                return analyzer
+    return None
+
+
+def _find_customer_class(class_map: dict) -> Optional[JavaASTAnalyzer]:
+    """Find the Customer class by name variants or characteristic properties."""
+    # Try exact/substring name match
+    result = _find_analyzer(class_map, 'Customer')
+    if result:
+        return result
+
+    # Fallback: find by characteristic properties (firstName + lastName + SSN + ArrayList)
+    skip = {'address', 'carloan', 'primarymortgage', 'unsecuredloan',
+            'loanaccount', 'loanaccounthierarchy', 'main', 'test'}
+    for name, analyzer in class_map.items():
+        if name in skip:
+            continue
+        fields = analyzer.get_fields()
+        field_names = {f.name.lower() for f in fields}
+        field_types = {f.type_name.lower() for f in fields}
+        has_first = any(n in field_names for n in ('firstname', 'first_name', 'fname', 'first'))
+        has_last = any(n in field_names for n in ('lastname', 'last_name', 'lname', 'last'))
+        has_ssn = any(n in field_names for n in ('ssn', 'socialsecuritynumber', 'social'))
+        has_list = any('arraylist' in t or 'list' in t for t in field_types)
+        if has_first and has_last and has_ssn and has_list:
+            return analyzer
+
     return None
 
 
@@ -42,7 +75,7 @@ def check_class_structure(java_files: List[Path], all_sources: dict, items: List
 # ---- Customer Class ----
 
 def _check_customer(class_map: dict, all_sources: dict, items: List[RubricItem]):
-    analyzer = _find_analyzer(class_map, 'Customer', 'customer')
+    analyzer = _find_customer_class(class_map)
     if not analyzer:
         for item_id in ('cust_props', 'cust_constructor', 'cust_getter_firstname',
                         'cust_getter_lastname', 'cust_getter_ssn',
